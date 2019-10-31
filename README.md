@@ -11,6 +11,7 @@ Further setup instructions will be made available soon. For now, please pre-proc
 * Project Page (ETH Zurich): https://ait.ethz.ch/projects/2019/faze/
 * Project Page (Nvidia): https://research.nvidia.com/publication/2019-10_Few-Shot-Adaptive-Gaze
 * arXiv Page: https://arxiv.org/abs/1905.01941
+* CVF Open Access PDF: http://openaccess.thecvf.com/content_ICCV_2019/papers/Park_Few-Shot_Adaptive_Gaze_Estimation_ICCV_2019_paper.pdf
 * Pre-processing Code: https://github.com/swook/faze_preprocess
 
 ## Bibtex
