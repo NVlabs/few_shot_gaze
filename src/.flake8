@@ -1,0 +1,7 @@
+[flake8]
+doctests = True
+enable-extensions = docstrings
+ignore = E402, W503
+max-line-length = 100
+statistics = True
+show-source = True

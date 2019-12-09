@@ -1,0 +1,9 @@
+apex
+h5py
+imageio
+moviepy
+numpy
+opencv_python
+torch
+torchvision
+tqdm
