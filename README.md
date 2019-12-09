@@ -81,4 +81,4 @@ Please cite our paper when referencing or using our code.
 
 
 ## Acknowledgements
-Seonwook Park carried out this work during his internship at Nvidia. This work was supported in part by the ERC Grant OPTINT (StG-2016-717054).
+Seonwook Park carried out this work during his internship at NVIDIA. This work was supported in part by the ERC Grant OPTINT (StG-2016-717054).
