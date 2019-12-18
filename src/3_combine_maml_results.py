@@ -115,6 +115,7 @@ def plot_mean_error_with_bars(dataset, data, output_path,
     for k, e in zip(ks, ys):
         tensorboard.add_scalar(
             'meta-test-final/%s/%s' % (meta_learner_identifier, dataset), e, k)
+    tensorboard.close()
 
 
 if __name__ == '__main__':
