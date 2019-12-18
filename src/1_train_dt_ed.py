@@ -214,9 +214,6 @@ logging.info(network)
 
 ################################################
 # Transfer on the GPU before constructing and optimizer
-if torch.cuda.device_count() > 1:
-    logging.info('Using %d GPUs!' % torch.cuda.device_count())
-    network = nn.DataParallel(network)
 network = network.to(device)
 
 ################################################
@@ -261,6 +258,12 @@ if args.use_apex:
         optimizer, gaze_optimizer = optimizers
 
 logging.info('Initialized optimizer(s)')
+
+################################################
+# Implement data parallel training on multiple GPUs if available
+if torch.cuda.device_count() > 1:
+    logging.info('Using %d GPUs!' % torch.cuda.device_count())
+    network = nn.DataParallel(network)
 
 ################################################
 # Define loss functions
