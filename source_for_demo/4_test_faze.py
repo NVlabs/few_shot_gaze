@@ -106,30 +106,8 @@ with open('./sample_person_data.pkl', 'rb') as f:
             [-sin_, 0., cos_]
         ]).astype(np.float32)
 
-    def vector_to_pitchyaw(vectors):
-        n = vectors.shape[0]
-        out = np.empty((n, 2))
-        vectors = np.divide(vectors, np.linalg.norm(vectors, axis=1).reshape(n, 1))
-        out[:, 0] = np.arcsin(vectors[:, 1])  # theta
-        out[:, 1] = np.arctan2(vectors[:, 0], vectors[:, 2])  # phi
-        return out
-
-    def pitchyaw_to_vector(pitchyaws):
-        n = pitchyaws.shape[0]
-        sin = np.sin(pitchyaws)
-        cos = np.cos(pitchyaws)
-        out = np.empty((n, 3))
-        out[:, 0] = np.multiply(cos[:, 0], sin[:, 1])
-        out[:, 1] = sin[:, 0]
-        out[:, 2] = np.multiply(cos[:, 0], cos[:, 1])
-        return out
-
     def calculate_rotation_matrix(e):
         return np.matmul(R_y(e[1]), R_x(e[0]))
-
-
-    g_a = pitchyaw_to_vector(data['labels'][:, :2])
-    h_a = pitchyaw_to_vector(data['labels'][:, 2:4])
 
     n, h, w, c = data['pixels'].shape
     img = np.zeros((n, c, h, w))
@@ -137,8 +115,8 @@ with open('./sample_person_data.pkl', 'rb') as f:
     R_head_a = np.zeros((n, 3, 3))
     for i in range(data['pixels'].shape[0]):
         img[i, :, :, :] = preprocess_image(data['pixels'][i, :, :, :])
-        R_gaze_a[i, :, :] = calculate_rotation_matrix(g_a[i, :])
-        R_head_a[i, :, :] = calculate_rotation_matrix(h_a[i, :])
+        R_gaze_a[i, :, :] = calculate_rotation_matrix(data['labels'][i, :2])
+        R_head_a[i, :, :] = calculate_rotation_matrix(data['labels'][i, 2:4])
 
     # reduce the number of validation samples if
     # you have less GPU memory
@@ -148,16 +126,16 @@ with open('./sample_person_data.pkl', 'rb') as f:
 
     input_dict_train = {
         'image_a': img[train_indices, :, :, :],
-        'gaze_a': g_a[train_indices, :],
-        'head_a': h_a[train_indices, :],
+        'gaze_a': data['labels'][train_indices, :2],
+        'head_a': data['labels'][train_indices, 2:4],
         'R_gaze_a': R_gaze_a[train_indices, :, :],
         'R_head_a': R_head_a[train_indices, :, :],
     }
 
     input_dict_valid = {
         'image_a': img[valid_indices, :, :, :],
-        'gaze_a': g_a[valid_indices, :],
-        'head_a': h_a[valid_indices, :],
+        'gaze_a': data['labels'][valid_indices, :2],
+        'head_a': data['labels'][valid_indices, 2:4],
         'R_gaze_a': R_gaze_a[valid_indices, :, :],
         'R_head_a': R_head_a[valid_indices, :, :],
     }
@@ -168,6 +146,9 @@ with open('./sample_person_data.pkl', 'rb') as f:
 
 #############
 # Finetuning
+
+from losses import GazeAngularLoss
+loss = GazeAngularLoss()
 
 def nn_angular_distance(a, b):
     sim = F.cosine_similarity(a, b, eps=1e-6)
@@ -182,7 +163,7 @@ optimizer = torch.optim.SGD(
 
 network.eval()
 output_dict = network(input_dict_valid)
-valid_loss = nn_angular_distance(output_dict['gaze_a_hat'], input_dict_valid['gaze_a'])
+valid_loss = loss(input_dict_valid, output_dict).cpu()
 print('%04d> , Validation: %.2f' % (0, valid_loss.item()))
 
 for i in range(num_finetuning_steps):
@@ -192,13 +173,13 @@ for i in range(num_finetuning_steps):
 
     # forward + backward + optimize
     output_dict = network(input_dict_train)
-    train_loss = nn_angular_distance(output_dict['gaze_a_hat'], input_dict_train['gaze_a'])
+    train_loss = loss(input_dict_train, output_dict)
     train_loss.backward()
     optimizer.step()
 
     if i % 100 == 99:
         network.eval()
         output_dict = network(input_dict_valid)
-        valid_loss = nn_angular_distance(output_dict['gaze_a_hat'], input_dict_valid['gaze_a'])
+        valid_loss = loss(input_dict_valid, output_dict).cpu()
         print('%04d> Train: %.2f, Validation: %.2f' %
               (i+1, train_loss.item(), valid_loss.item()))
