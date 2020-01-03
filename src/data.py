@@ -131,7 +131,7 @@ class HDFDataset(Dataset):
             n = vectors.shape[0]
             out = np.empty((n, 2))
             vectors = np.divide(vectors, np.linalg.norm(vectors, axis=1).reshape(n, 1))
-            out[:, 0] = -np.arcsin(vectors[:, 1])  # theta
+            out[:, 0] = np.arcsin(vectors[:, 1])  # theta
             out[:, 1] = np.arctan2(vectors[:, 0], vectors[:, 2])  # phi
             return out
 
