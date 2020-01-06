@@ -115,8 +115,6 @@ def normalize(entry, head_pose):
     if g is not None:
         # Correct gaze
         n_g = correctGaze(R, g)
-        n_g /= np.linalg.norm(n_g)
-        n_g = vector_to_pitchyaw(-n_g.T).flatten()
 
         # if mode == 'face':
         #     to_visualize = cv2.equalizeHist(cv2.cvtColor(patch, cv2.COLOR_RGB2GRAY))
@@ -132,11 +130,9 @@ def normalize(entry, head_pose):
 
 
 def correctGaze(R, g):
-
     n_g = R * g
     n_g /= np.linalg.norm(n_g)
     n_g = vector_to_pitchyaw(-n_g.T).flatten()
-
     return n_g
 
 

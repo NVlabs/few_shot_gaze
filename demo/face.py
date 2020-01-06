@@ -13,10 +13,11 @@ from PIL import Image
 
 class face:
 
-    def detect(frame, use_max='SIZE'):
+    def detect(frame, scale = 1.0, use_max='SIZE'):
 
         # detect face
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_small = cv2.resize(frame, (0, 0), fx=scale, fy=scale)
+        frame_rgb = cv2.cvtColor(frame_small, cv2.COLOR_BGR2RGB)
         pil_im = Image.fromarray(frame_rgb)
         bounding_boxes, landmarks = detect_faces(pil_im, min_face_size=30.0)
         dets = [x[:4] for x in bounding_boxes]
@@ -39,6 +40,7 @@ class face:
                     face_location = dets[max_id]
             else:
                 face_location = dets[max_id]
+            face_location = face_location * (1/scale)
 
         return face_location
 
