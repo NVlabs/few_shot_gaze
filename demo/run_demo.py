@@ -285,8 +285,8 @@ while ret:
         por_cam_y = gaze_cam_origin[1] + d * g_cam_forward[1]
         por_cam_z = 0.0
 
-        x_pixel_hat = np.ceil(960 - por_cam_x * 1920 / 345.4)
-        y_pixel_hat = np.ceil((por_cam_y - 10) * 1080 / 194.1)
+        x_pixel_hat = np.ceil(960 - por_cam_x * 1920 / 344)
+        y_pixel_hat = np.ceil((por_cam_y - 10) * 1080 / 194)
 
         output_tracked = kalman_filter_gaze[0].update(x_pixel_hat + 1j * y_pixel_hat)
         x_pixel_hat, y_pixel_hat = np.ceil(np.real(output_tracked)), np.ceil(np.imag(output_tracked))
