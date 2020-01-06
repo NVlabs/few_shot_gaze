@@ -150,12 +150,6 @@ with open('./sample_person_data.pkl', 'rb') as f:
 from losses import GazeAngularLoss
 loss = GazeAngularLoss()
 
-def nn_angular_distance(a, b):
-    sim = F.cosine_similarity(a, b, eps=1e-6)
-    sim = F.hardtanh(sim, 1e-6, 1.0 - 1e-6)
-    dist = torch.acos(sim) * (180 / np.pi)
-    return torch.mean(dist)
-
 optimizer = torch.optim.SGD(
     [p for n, p in network.named_parameters() if n.startswith('gaze')],
     lr=finetuning_learning_rate,
