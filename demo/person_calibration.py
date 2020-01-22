@@ -3,7 +3,7 @@
 # --------------------------------------------------------
 # Copyright (C) 2020 NVIDIA Corporation. All rights reserved.
 # NVIDIA Source Code License (1-Way Commercial)
-# Code written by Shalini De Mello, Seonwook Park.
+# Code written by Shalini De Mello.
 # --------------------------------------------------------
 
 import cv2
@@ -250,9 +250,5 @@ def fine_tune(subject, data, frame_processor, mon, device, gaze_network, k, step
                   (i+1, train_loss.item(), valid_loss.item()))
     torch.save(gaze_network.state_dict(), '%s_gaze_network.pth.tar' % subject)
     torch.cuda.empty_cache()
-
-    # vid_cap = cv2.VideoCapture('%s_calib.avi' % subject)
-    # data = frame_processor.process(subject, vid_cap, mon, device, gaze_network, por_available=True, show=show)
-    # vid_cap.release()
 
     return gaze_network

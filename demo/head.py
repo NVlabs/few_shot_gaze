@@ -20,12 +20,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-# --------------------------------------------------------
-# Copyright (C) 2020 NVIDIA Corporation. All rights reserved.
-# NVIDIA Source Code License (1-Way Commercial)
-# Code written by Shalini De Mello, Seonwook Park.
-# --------------------------------------------------------
-
 import os
 import cv2
 import eos
@@ -111,22 +105,6 @@ class PnPHeadPoseEstimator(object):
         between_eye_point = np.mean(self.sfm_points_for_pnp[-4:, :], axis=0)
         self.sfm_points_ibug_subset -= between_eye_point.reshape(1, 3)
         self.sfm_points_for_pnp -= between_eye_point.reshape(1, 3)
-
-        # # Visualize selected vertices as scatter plot
-        # print(self.sfm_points_for_pnp)
-        # import matplotlib.pyplot as plt
-        # from mpl_toolkits.mplot3d import Axes3D
-        # fig = plt.figure(figsize=(8,8))
-        # ax = fig.add_subplot(111, projection='3d')
-        # ax.scatter(
-        #     self.sfm_points_for_pnp[:, 0],
-        #     self.sfm_points_for_pnp[:, 1],
-        #     self.sfm_points_for_pnp[:, 2],
-        # )
-        # ax.set_xlabel('x')
-        # ax.set_ylabel('y')
-        # ax.set_zlabel('z')
-        # plt.show(block=True)
 
     def fit_func(self, landmarks, camera_parameters):
         landmarks = np.array([

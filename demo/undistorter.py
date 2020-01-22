@@ -22,11 +22,6 @@ SOFTWARE.
 
 #!/usr/bin/env python3
 
-# --------------------------------------------------------
-# Copyright (C) 2020 NVIDIA Corporation. All rights reserved.
-# NVIDIA Source Code License (1-Way Commercial)
-# Code written by Seonwook Park, Shalini De Mello.
-# --------------------------------------------------------
 
 import cv2 as cv
 import numpy as np

@@ -22,11 +22,6 @@ SOFTWARE.
 
 #!/usr/bin/env python3
 
-# --------------------------------------------------------
-# Copyright (C) 2020 NVIDIA Corporation. All rights reserved.
-# NVIDIA Source Code License (1-Way Commercial)
-# Code written by Seonwook Park, Shalini De Mello.
-# --------------------------------------------------------
 
 import cv2
 import numpy as np
@@ -115,16 +110,6 @@ def normalize(entry, head_pose):
     if g is not None:
         # Correct gaze
         n_g = correctGaze(R, g)
-
-        # if mode == 'face':
-        #     to_visualize = cv2.equalizeHist(cv2.cvtColor(patch, cv2.COLOR_RGB2GRAY))
-        #     to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.24 * oh), n_g, length=80.0, thickness=1)
-        #     to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.5 * oh), n_h, length=80.0, thickness=3,
-        #                              color=(0, 0, 0))
-        #     to_visualize = draw_gaze(to_visualize, (0.5 * ow, 0.5 * oh), n_h, length=80.0, thickness=1,
-        #                              color=(255, 255, 255))
-        #     cv2.imshow('zhang', to_visualize)
-        #     cv2.waitKey(1)
 
     return patch, n_h, n_g, np.transpose(R), g_o, g_t
 

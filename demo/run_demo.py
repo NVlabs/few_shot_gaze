@@ -3,7 +3,7 @@
 # --------------------------------------------------------
 # Copyright (C) 2020 NVIDIA Corporation. All rights reserved.
 # NVIDIA Source Code License (1-Way Commercial)
-# Code written by Shalini De Mello, Seonwook Park.
+# Code written by Shalini De Mello.
 # --------------------------------------------------------
 
 import time
@@ -51,8 +51,8 @@ else:
 #################################
 # Load gaze network
 #################################
-ted_parameters_path = 'weights_ted.pth.tar'  #'../src/outputs_of_full_train_test_and_plot/checkpoints/at_step_0057101.pth.tar'
-maml_parameters_path = 'weights_maml'  #'../src/outputs_of_full_train_test_and_plot/Zg_OLR1e-03_IN5_ILR1e-05_Net64'
+ted_parameters_path = 'demo_weights/weights_ted.pth.tar'
+maml_parameters_path = 'demo_weights/weights_maml'
 k = 9
 
 # Set device
@@ -85,7 +85,7 @@ if torch.cuda.device_count() == 1:
 #####################################
 
 # Load MAML MLP weights if available
-full_maml_parameters_path = maml_parameters_path +'/%02d.pth.tar' % k #maml_parameters_path +'/MAML_%02d/meta_learned_parameters.pth.tar' % k
+full_maml_parameters_path = maml_parameters_path +'/%02d.pth.tar' % k
 assert os.path.isfile(full_maml_parameters_path)
 print('> Loading: %s' % full_maml_parameters_path)
 maml_weights = torch.load(full_maml_parameters_path)
@@ -111,7 +111,7 @@ subject = input('Enter subject name: ')
 data = collect_data(cam_cap, mon, calib_points=9, rand_points=4)
 # adjust steps and lr for best results
 # To debug calibration, set show=True
-gaze_network = fine_tune(subject, data, frame_processor, mon, device, gaze_network, k, steps=1000, lr=1e-4, show=False)
+gaze_network = fine_tune(subject, data, frame_processor, mon, device, gaze_network, k, steps=1000, lr=1e-5, show=False)
 
 #################################
 # Run on live webcam feed and

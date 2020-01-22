@@ -3,7 +3,7 @@
 # --------------------------------------------------------
 # Copyright (C) 2020 NVIDIA Corporation. All rights reserved.
 # NVIDIA Source Code License (1-Way Commercial)
-# Code written by Shalini De Mello, Seonwook Park.
+# Code written by Shalini De Mello.
 # --------------------------------------------------------
 
 import cv2
