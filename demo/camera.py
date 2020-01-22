@@ -25,29 +25,32 @@ def cam_calibrate(cam_idx, cap, cam_calib):
     frames = []
     while True:
         ret, frame = cap.read()
+        frame_copy = frame.copy()
 
+        corners = []
         if ret:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            ret, corners = cv2.findChessboardCorners(gray, (9, 6), None)
-            if ret:
+            retc, corners = cv2.findChessboardCorners(gray, (9, 6), None)
+            if retc:
                 cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
                 # Draw and display the corners
-                frame_copy = frame.copy()
                 cv2.drawChessboardCorners(frame_copy, (9, 6), corners, ret)
-                cv2.imshow('points', frame_copy)
 
+                cv2.imshow('points', frame_copy)
                 # s to save, c to continue, q to quit
                 if cv2.waitKey(0) & 0xFF == ord('s'):
                     img_points.append(corners)
                     obj_points.append(pts)
                     frames.append(frame)
-                elif cv2.waitKey(0) & 0xFF == ord('n'):
+                elif cv2.waitKey(0) & 0xFF == ord('c'):
                     continue
                 elif cv2.waitKey(0) & 0xFF == ord('q'):
+                    print("Calibrating camera...")
                     cv2.destroyAllWindows()
                     break
 
     # compute calibration matrices
+
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, frames[0].shape[0:2], None, None)
 
     # check
