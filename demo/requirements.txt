@@ -1,0 +1,16 @@
+apex
+h5py
+imageio
+moviepy
+numpy
+opencv_python
+torch
+torchvision
+tqdm
+yacs
+pandas==0.24.2
+scipy==1.0.0
+hdf5storage
+pgi
+vext
+vext.gi
