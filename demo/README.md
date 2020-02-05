@@ -1,4 +1,4 @@
-## Setup
+## Instructions
 
 ### 1. Setup
 
