@@ -79,8 +79,15 @@ fi
 #    Please note, that you need output HDF files from the previous step to
 #    proceed to the next step. These HDF files are provided to you by default
 #    in this specific example pipeline.
+#
+#    In this example script, we use pre-trained MAML weights that we provided on
+#    20th January 2020. This can be done by providing the `--skip-training`
+#    command line argument. Note that the full testing procedure is still very
+#    time consuming, as 1000-step fine-tuning must occur for each participant
+#    in GazeCapture and MPIIGaze.
 
-ML_COMMON=" --disable-tqdm --output-dir ./"
+#ML_COMMON=" --disable-tqdm --output-dir ./"
+ML_COMMON=" --skip-training --disable-tqdm --output-dir ./"
 
 python3 2_meta_learning.py ${ML_COMMON} ${OUTPUT_DIR}  1 &
 python3 2_meta_learning.py ${ML_COMMON} ${OUTPUT_DIR}  2 &
