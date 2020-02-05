@@ -14,7 +14,7 @@ This repository contains the code for training and evaluation of our ICCV 2019 w
 * [Pre-processing Code GitHub Repository](https://github.com/swook/faze_preprocess) _(also included as a submodule in this repository)_
 
 
-## Setup
+## Training and Evaluation
 
 ### 1. Datasets
 
@@ -39,9 +39,9 @@ The remaining Python package dependencies can be installed by running:
 
     pip3 install --user --upgrade -r requirements.txt
 
-### 3. Pre-trained weights for the DT-ED architecture
+### 3. Pre-trained weights for the DT-ED architecture and MAML models
 
-You can obtain a copy of the pre-trained weights for the Disentangling Transforming Encoder-Decoder from the following location.
+You can obtain a copy of the pre-trained weights for the Disentangling Transforming Encoder-Decoder and for the various MAML models from the following location.
 
     cd src/
     wget -N https://ait.ethz.ch/projects/2019/faze/downloads/outputs_of_full_train_test_and_plot.zip
@@ -67,6 +67,13 @@ When the full pipeline successfully runs, you will find some outputs in the path
 * **Zg_OLR1e-03_IN5_ILR1e-05_Net64/**: outputs of the meta-learning step.
 * **Zg_OLR1e-03_IN5_ILR1e-05_Net64 MAML MPIIGaze.pdf**: plotted results of the few-shot learning evaluations on MPIIGaze.
 * **Zg_OLR1e-03_IN5_ILR1e-05_Net64 MAML GazeCapture (test).pdf**: plotted results of the few-shot learning evaluations on the GazeCapture test set.
+
+## Realtime Demo
+
+We also provide a realtime demo that runs with live input from a webcam in the `demo/` folder. Please check the separate
+[demo instructions](https://github.com/NVlabs/few_shot_gaze/blob/master/demo/README.md) for details of 
+how to setup and run it.
+
 
 ## Bibtex
 Please cite our paper when referencing or using our code.
