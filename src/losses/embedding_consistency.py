@@ -23,7 +23,7 @@ def nn_batch_angular_distance(a, b):
     # We now have distances with shape B x F
 
     # Ensure no NaNs occur due to the input to the arccos function
-    sim = F.hardtanh(sim, 1e-6, 1.0 - 1e-6)
+    sim = F.hardtanh(sim, -1.0 + 1e-6, 1.0 - 1e-6)
 
     # Now, we want to convert the similarity measure to degrees and calculate
     # a single scalar distance value per entry in the batch

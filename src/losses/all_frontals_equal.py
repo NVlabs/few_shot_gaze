@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 def nn_batch_angular_distance(a, b):
     sim = F.cosine_similarity(a, b, dim=-1, eps=1e-6)
-    sim = F.hardtanh(sim, 1e-6, 1.0 - 1e-6)
+    sim = F.hardtanh(sim, -1.0 + 1e-6, 1.0 - 1e-6)
     return torch.mean(torch.acos(sim) * (180 / np.pi), dim=1)
 
 
