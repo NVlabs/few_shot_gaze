@@ -41,16 +41,18 @@ class CheckpointsManager(object):
         fpaths = sorted(fpaths)  # sort by step number
         return fpaths
 
-    def load_last_checkpoint(self):
+    def load_last_checkpoint(self, local_rank):
         available_fpaths = self.all_available_checkpoint_files
         if len(available_fpaths) > 0:
             step_number, fpath = available_fpaths[-1]
-            logging.info('Found weights file: %s' % fpath)
-            loaded_step_number = self.load_checkpoint(step_number, fpath)
+            if local_rank == 0:
+                logging.info('Found weights file: %s' % fpath)
+            loaded_step_number = self.load_checkpoint(step_number, fpath,
+                                                      local_rank)
             return loaded_step_number
         return 0
 
-    def load_checkpoint(self, step_number, checkpoint_fpath):
+    def load_checkpoint(self, step_number, checkpoint_fpath, local_rank):
         assert os.path.isfile(checkpoint_fpath)
         weights = torch.load(checkpoint_fpath)
 
@@ -59,8 +61,9 @@ class CheckpointsManager(object):
             if next(iter(weights.keys())).startswith('module.'):
                 weights = dict([(k[7:], v) for k, v in weights.items()])
 
-        self.network.load_state_dict(weights)
-        logging.info('Loaded known model weights at step %d' % step_number)
+        self.network.load_state_dict(weights, local_rank)
+        if local_rank == 0:
+            logging.info('Loaded known model weights at step %d' % step_number)
         return step_number
 
     def save_checkpoint(self, step_number):

@@ -39,7 +39,7 @@ class BatchHardTripletLoss(object):
 
         # Zero loss tensor for when no triplet can be found
         self.zero_loss = torch.tensor(0, dtype=torch.float, requires_grad=False,
-                                      device="cuda:0" if torch.cuda.is_available() else "cpu")
+                                      device="cuda" if torch.cuda.is_available() else "cpu")
 
     def construct_person_identicality(self, input_dict):
         """

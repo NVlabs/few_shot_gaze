@@ -80,6 +80,9 @@ parser.add_argument('--print-freq-train', type=int, default=20, metavar='N',
                     help='print training statistics after every N iterations (default: 20)')
 parser.add_argument('--print-freq-test', type=int, default=5000, metavar='N',
                     help='print test statistics after every N iterations (default: 5000)')
+parser.add_argument('--distributed', dest = "distributed", action = 'store_true',
+                    help = 'Use distributed computing in training.')
+parser.add_argument('--local_rank', default = 0, type = int)
 
 # data
 parser.add_argument('--mpiigaze-file', type=str, default='../preprocess/outputs/MPIIGaze.h5',
@@ -108,6 +111,8 @@ parser.add_argument('--save-image-samples', type=int, default=100,
 # evaluation / prediction of outputs
 parser.add_argument('--skip-training', action='store_true',
                     help='skip training to go straight to prediction generation')
+parser.add_argument('--generate-predictions', action='store_true',
+                    help='skip training to go straight to prediction generation')
 parser.add_argument('--eval-batch-size', type=int, default=512, metavar='N',
                     help='evaluation batch size (default: 512)')
 
@@ -127,6 +132,14 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
+if args.distributed:
+    from torch.utils.data.distributed import DistributedSampler
+    from torch.nn.parallel import DistributedDataParallel as DDP
+    torch.cuda.set_device(args.local_rank)
+    torch.distributed.init_process_group(backend = 'nccl', init_method = 'env://')
+    world_size = torch.distributed.get_world_size()
+else:
+    world_size = torch.cuda.device_count()
 
 import logging
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
@@ -134,7 +147,10 @@ logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 from data import HDFDataset
 
 # Set device
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+if args.distributed:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+else:
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Ignore warnings
 if not args.show_warnings:
@@ -161,7 +177,7 @@ def embedding_consistency_loss_weight_at_step(current_step):
     final_value = args.coeff_embedding_consistency_loss
     if args.embedding_consistency_loss_warmup_samples is None:
         return final_value
-    warmup_steps = int(args.embedding_consistency_loss_warmup_samples / args.batch_size)
+    warmup_steps = int(args.embedding_consistency_loss_warmup_samples / batch_size_global)
     if current_step <= warmup_steps:
         return (final_value / warmup_steps) * current_step
     else:
@@ -171,8 +187,11 @@ def embedding_consistency_loss_weight_at_step(current_step):
 #####################################################
 # Calculate how to handle learning rate at given step
 
-max_lr = args.base_lr * args.batch_size
-ramp_up_until_step = int(args.warmup_period_for_lr / args.batch_size)
+global batch_size_global
+batch_size_global = args.batch_size * world_size
+
+max_lr = args.base_lr * batch_size_global
+ramp_up_until_step = int(args.warmup_period_for_lr / batch_size_global)
 ramp_up_a = (max_lr - args.base_lr) / ramp_up_until_step
 ramp_up_b = args.base_lr
 
@@ -210,17 +229,30 @@ network = DTED(
     use_triplet=args.triplet_loss_type is not None,
     backprop_gaze_to_encoder=args.backprop_gaze_to_encoder,
 )
-logging.info(network)
+if args.distributed:
+        if args.local_rank == 0:
+            logging.info(network)
+else:
+    logging.info(network)
 
 ################################################
 # Transfer on the GPU before constructing and optimizer
-network = network.to(device)
+if args.distributed:
+    network = network.cuda()
+else:
+    network = network.to(device)
 
 ################################################
 # Build optimizers
+if args.use_apex:
+    from apex.optimizers import FusedSGD
+    SGD = FusedSGD
+else:
+    SGD = optim.SGD
+
 gaze_lr = 1.0 * args.base_lr
 if args.backprop_gaze_to_encoder:
-    optimizer = optim.SGD(
+    optimizer = SGD(
         [
             {'params': [p for n, p in network.named_parameters() if not n.startswith('gaze')]},
             {
@@ -231,14 +263,14 @@ if args.backprop_gaze_to_encoder:
         lr=args.base_lr, momentum=0.9,
         nesterov=True, weight_decay=args.l2_reg)
 else:
-    optimizer = optim.SGD(
+    optimizer = SGD(
         [p for n, p in network.named_parameters() if not n.startswith('gaze')],
         lr=args.base_lr, momentum=0.9,
         nesterov=True, weight_decay=args.l2_reg,
     )
 
     # one additional optimizer for just gaze estimation head
-    gaze_optimizer = optim.SGD(
+    gaze_optimizer = SGD(
         [p for n, p in network.named_parameters() if n.startswith('gaze')],
         lr=gaze_lr, momentum=0.9,
         nesterov=True, weight_decay=args.l2_reg,
@@ -257,13 +289,21 @@ if args.use_apex:
     else:
         optimizer, gaze_optimizer = optimizers
 
-logging.info('Initialized optimizer(s)')
+if not args.distributed or args.local_rank == 0:
+    logging.info('Initialized optimizer(s)')
 
 ################################################
 # Implement data parallel training on multiple GPUs if available
-if torch.cuda.device_count() > 1:
-    logging.info('Using %d GPUs!' % torch.cuda.device_count())
-    network = nn.DataParallel(network)
+if args.distributed:
+    network = DDP(network, device_ids=[args.local_rank])
+    if args.local_rank == 0:
+        logging.info('Using %d GPUs! with DDP' % world_size)
+        seed = np.random.randint(1e4)
+        seed = (seed + torch.distributed.get_rank()) % 2**32
+else:
+    if torch.cuda.device_count() > 1:
+        network = nn.DataParallel(network)
+    logging.info('Using %d GPUs! with DP' % world_size)
 
 ################################################
 # Define loss functions
@@ -313,14 +353,27 @@ train_dataset = HDFDataset(hdf_file_path=args.gazecapture_file,
                            pick_exactly_per_person=args.pick_exactly_per_person,
                            pick_at_least_per_person=args.pick_at_least_per_person,
                            )
-train_dataloader = DataLoader(train_dataset,
-                              batch_size=args.batch_size,
-                              shuffle=True,
-                              drop_last=True,
-                              num_workers=args.num_data_loaders,
-                              pin_memory=True,
-                              # worker_init_fn=worker_init_fn,
-                              )
+global train_dataloader
+if args.distributed:
+    train_sampler = DistributedSampler(train_dataset,
+                                       num_replicas=world_size,
+                                       rank=args.local_rank,
+                                       shuffle=True)
+    train_dataloader = DataLoader(train_dataset,
+                                  batch_size=args.batch_size,
+                                  drop_last=True,
+                                  num_workers=args.num_data_loaders,
+                                  pin_memory=True,
+                                  sampler=train_sampler)
+else:
+    train_dataloader = DataLoader(train_dataset,
+                                  batch_size=args.batch_size,
+                                  shuffle=True,
+                                  drop_last=True,
+                                  num_workers=args.num_data_loaders,
+                                  pin_memory=True,
+                                  # worker_init_fn=worker_init_fn,
+                                  )
 all_data[train_tag] = {'dataset': train_dataset, 'dataloader': train_dataloader}
 
 # Define multiple validation/test datasets
@@ -342,31 +395,47 @@ for tag, hdf_file, prefixes in [('gc/val', args.gazecapture_file, all_gc_prefixe
             endpoint=False,
             dtype=np.uint32,
         ))
-    all_data[tag] = {
-        'dataset': dataset,
-        'dataloader': DataLoader(dataset,
-                                 batch_size=args.batch_size,
-                                 shuffle=False,
-                                 num_workers=2,  # args.num_data_loaders,
-                                 pin_memory=True,
-                                 worker_init_fn=worker_init_fn),
-    }
+    if args.distributed:
+        sampler = DistributedSampler(dataset,
+                                     num_replicas=world_size,
+                                     rank=args.local_rank,
+                                     shuffle=False)
+        all_data[tag] = {
+            'dataset': dataset,
+            'dataloader': DataLoader(dataset,
+                                     batch_size=args.batch_size,
+                                     shuffle=False,
+                                     num_workers=2,  # args.num_data_loaders,
+                                     pin_memory=True,
+                                     sampler=sampler)
+        }
+    else:
+        all_data[tag] = {
+            'dataset': dataset,
+            'dataloader': DataLoader(dataset,
+                                     batch_size=args.batch_size,
+                                     shuffle=False,
+                                     num_workers=2,  # args.num_data_loaders,
+                                     pin_memory=True,
+                                     worker_init_fn=worker_init_fn),
+        }
 
 # Print some stats.
-logging.info('')
-for tag, val in all_data.items():
-    tag = '[%s]' % tag
-    dataset = val['dataset']
-    original_dataset = dataset.dataset if isinstance(dataset, Subset) else dataset
-    num_original_entries = len(original_dataset)
-    num_people = len(original_dataset.prefixes)
-    logging.info('%10s full set size:           %7d' % (tag, num_original_entries))
-    logging.info('%10s current set size:        %7d' % (tag, len(dataset)))
-    logging.info('%10s num people:              %7d' % (tag, num_people))
-    logging.info('%10s mean entries per person: %7d' % (tag, num_original_entries / num_people))
-    logging.info('')
+if not args.distributed or args.local_rank == 0:
+    for tag, val in all_data.items():
+        tag = '[%s]' % tag
+        dataset = val['dataset']
+        original_dataset = dataset.dataset if isinstance(dataset, Subset) else dataset
+        num_original_entries = len(original_dataset)
+        num_people = len(original_dataset.prefixes)
+        logging.info('%10s full set size:           %7d' % (tag, num_original_entries))
+        logging.info('%10s current set size:        %7d' % (tag, len(dataset)))
+        logging.info('%10s num people:              %7d' % (tag, num_people))
+        logging.info('%10s mean entries per person: %7d' % (tag, num_original_entries / num_people))
+        logging.info('')
 
-logging.info('Prepared Datasets')
+    logging.info('Prepared Datasets')
+
 
 ######################################################
 # Utility methods for accessing datasets
@@ -464,7 +533,7 @@ def recover_images(x):
 
 from checkpoints_manager import CheckpointsManager
 saver = CheckpointsManager(network, args.save_path)
-initial_step = saver.load_last_checkpoint()
+initial_step = saver.load_last_checkpoint(args.local_rank)
 
 ######################
 # Training step update
@@ -492,9 +561,15 @@ class RunningStatistics(object):
 time_epoch_start = None
 num_elapsed_epochs = 0
 
+def reduce_loss(loss):
+    loss_clone = loss.clone()
+    torch.distributed.all_reduce(loss_clone, op = torch.distributed.ReduceOp.SUM)
+    avg_loss = loss_clone / world_size
+    return avg_loss
 
 def execute_training_step(current_step):
     global train_data_iterator, time_epoch_start, num_elapsed_epochs
+    torch.cuda.synchronize()
     time_iteration_start = time.time()
 
     # Get data
@@ -508,8 +583,9 @@ def execute_training_step(current_step):
         num_elapsed_epochs += 1
         time_epoch_end = time.time()
         time_epoch_diff = time_epoch_end - time_epoch_start
-        if args.use_tensorboard:
-            tensorboard.add_scalar('timing/epoch', time_epoch_diff, num_elapsed_epochs)
+        if not args.distributed or args.local_rank == 0:
+            if args.use_tensorboard:
+                    tensorboard.add_scalar('timing/epoch', time_epoch_diff, num_elapsed_epochs)
 
         # Done with an epoch now...!
         if num_elapsed_epochs % 5 == 0:
@@ -531,7 +607,8 @@ def execute_training_step(current_step):
 
     # get the inputs
     input_dict = send_data_dict_to_gpu(input_dict)
-    running_timings.add('batch_fetch', time.time() - time_batch_fetch_start)
+    if not args.distributed or args.local_rank == 0:
+        running_timings.add('batch_fetch', time.time() - time_batch_fetch_start)
 
     # zero the parameter gradient
     network.train()
@@ -604,15 +681,23 @@ def execute_training_step(current_step):
 
     # Register timing
     time_backward_end = time.time()
-    running_timings.add('forward_and_backward', time_backward_end - time_forward_start)
+    if not args.distributed or args.local_rank == 0:
+        running_timings.add('forward_and_backward', time_backward_end - time_forward_start)
 
     # Store values for logging later
-    for key, value in loss_dict.items():
-        loss_dict[key] = value.detach().cpu()
-    for key, value in loss_dict.items():
-        running_losses.add(key, value.numpy())
+    if args.distributed:
+        # Reuce loss across GPUs (strong data to cpu includes cuda synchronization)
+        for key, value in loss_dict.items():
+            loss_dict[key] = reduce_loss(value).detach().cpu()
+    else:
+        for key, value in loss_dict.items():
+            loss_dict[key] = value.detach().cpu()
 
-    running_timings.add('iteration', time.time() - time_iteration_start)
+    if not args.distributed or args.local_rank == 0:
+        for key, value in loss_dict.items():
+            running_losses.add(key, value.numpy())
+        running_timings.add('iteration', time.time() - time_iteration_start)
+
 
 ####################################
 # Test for particular validation set
@@ -628,30 +713,34 @@ def execute_test(tag, data_dict):
             for key, value in loss_dict.items():
                 test_losses.add(key, value.detach().cpu().numpy())
     test_loss_means = test_losses.means()
-    logging.info('Test Losses at [%7d] for %10s: %s' %
-                 (current_step + 1, '[' + tag + ']',
-                  ', '.join(['%s: %.6f' % v for v in test_loss_means.items()])))
-    if args.use_tensorboard:
-        for k, v in test_loss_means.items():
-            tensorboard.add_scalar('test/%s/%s' % (tag, k), v, current_step + 1)
+    if not args.distributed or args.local_rank == 0:
+        logging.info('Test Losses at [%7d] for %10s: %s' %
+                     (current_step + 1, '[' + tag + ']',
+                      ', '.join(['%s: %.6f' % v for v in test_loss_means.items()])))
+        if args.use_tensorboard:
+            for k, v in test_loss_means.items():
+                tensorboard.add_scalar('test/%s/%s' % (tag, k), v, current_step + 1)
 
 
 ############
 # Main loop
 
-num_training_steps = int(args.num_training_epochs * len(train_dataset) / args.batch_size)
+num_training_steps = int(args.num_training_epochs * len(train_dataset) / batch_size_global)
 if args.skip_training:
     num_training_steps = 0
 else:
-    logging.info('Training')
+    if not args.distributed or args.local_rank == 0:
+        logging.info('Training')
+        if args.use_tensorboard:
+            from tensorboardX import SummaryWriter
+            tensorboard = SummaryWriter(log_dir=args.save_path)
     last_training_step = num_training_steps - 1
-    if args.use_tensorboard:
-        from tensorboardX import SummaryWriter
-        tensorboard = SummaryWriter(log_dir=args.save_path)
+
 
 train_data_iterator = iter(train_dataloader)
-running_losses = RunningStatistics()
-running_timings = RunningStatistics()
+if not args.distributed or args.local_rank == 0:
+    running_losses = RunningStatistics()
+    running_timings = RunningStatistics()
 for current_step in range(initial_step, num_training_steps):
 
     ################
@@ -660,30 +749,38 @@ for current_step in range(initial_step, num_training_steps):
 
     if current_step % args.print_freq_train == args.print_freq_train - 1:
         conv1_wt_lr = optimizer.param_groups[0]['lr']
-        running_loss_means = running_losses.means()
-        logging.info('Losses at [%7d]: %s' %
-                     (current_step + 1,
-                      ', '.join(['%s: %.5f' % v
-                                 for v in running_loss_means.items()])))
-        if args.use_tensorboard:
-            tensorboard.add_scalar('train_lr', conv1_wt_lr, current_step + 1)
-            for k, v in running_loss_means.items():
-                tensorboard.add_scalar('train/' + k, v, current_step + 1)
-        running_losses.reset()
+        if not args.distributed or args.local_rank == 0:
+            running_loss_means = running_losses.means()
+            logging.info('Losses at [%7d]: %s' %
+                             (current_step + 1,
+                              ', '.join(['%s: %.5f' % v
+                                         for v in running_loss_means.items()])))
+            if args.use_tensorboard:
+                tensorboard.add_scalar('train_lr', conv1_wt_lr, current_step + 1)
+                for k, v in running_loss_means.items():
+                    tensorboard.add_scalar('train/' + k, v, current_step + 1)
+            running_losses.reset()
 
     # Print some timing statistics
     if current_step % 100 == 99:
-        if args.use_tensorboard:
-            for k, v in running_timings.means().items():
-                tensorboard.add_scalar('timing/' + k, v, current_step + 1)
-        running_timings.reset()
+        if not args.distributed or args.local_rank == 0:
+            if args.use_tensorboard:
+                    for k, v in running_timings.means().items():
+                        tensorboard.add_scalar('timing/' + k, v, current_step + 1)
+            running_timings.reset()
 
     # print some memory statistics
     if current_step % 5000 == 0:
-        for i in range(torch.cuda.device_count()):
-            bytes = (torch.cuda.memory_allocated(device=i)
-                     + torch.cuda.memory_cached(device=i))
-            logging.info('GPU %d: probably allocated approximately %.2f GB' % (i, bytes / 1e9))
+        if args.distributed:
+            bytes = (torch.cuda.memory_allocated(device=args.local_rank)
+                 + torch.cuda.memory_cached(device=args.local_rank))
+            logging.info('GPU %d: probably allocated approximately %.2f GB' %
+                (args.local_rank, bytes / 1e9))
+        else:
+            for i in range(torch.cuda.device_count()):
+                bytes = (torch.cuda.memory_allocated(device=i)
+                         + torch.cuda.memory_cached(device=i))
+                logging.info('GPU %d: probably allocated approximately %.2f GB' % (i, bytes / 1e9))
 
     ###############
     # Testing loop: every specified iterations compute the test statistics
@@ -705,65 +802,66 @@ for current_step in range(initial_step, num_training_steps):
     # Visualization loop
 
     # Latent space walks (only store latest results)
-    if (args.save_image_samples > 0
-        and (current_step % args.save_freq_images
-             == (args.save_freq_images - 1)
-             or current_step == last_training_step)):
-        network.eval()
-        torch.cuda.empty_cache()
-        with torch.no_grad():
-            for tag, data_dict in all_data.items():
+    if not args.distributed or args.local_rank == 0:
+        if (args.save_image_samples > 0
+            and (current_step % args.save_freq_images
+                 == (args.save_freq_images - 1)
+                 or current_step == last_training_step)):
+            network.eval()
+            torch.cuda.empty_cache()
+            with torch.no_grad():
+                for tag, data_dict in all_data.items():
 
-                def save_images(images, dname, stem):
-                    dpath = '%s/walks/%s/%s' % (args.save_path, tag, dname)
-                    if not os.path.isdir(dpath):
-                        os.makedirs(dpath)
-                    for i in range(args.save_image_samples):
-                        # Write single image
-                        frames = [images[j][i] for j in range(len(images))]
-                        # Write video
-                        frames = [f[:, :, ::-1] for f in frames]  # BGR to RGB
-                        frames += frames[1:-1][::-1]  # continue in reverse
-                        clip = mpy.ImageSequenceClip(frames, fps=15)
-                        clip.write_videofile('%s/%04d_%s.mp4' % (dpath, i, stem),
-                                             audio=False, threads=8,
-                                             logger=None, verbose=False)
+                    def save_images(images, dname, stem):
+                        dpath = '%s/walks/%s/%s' % (args.save_path, tag, dname)
+                        if not os.path.isdir(dpath):
+                            os.makedirs(dpath)
+                        for i in range(args.save_image_samples):
+                            # Write single image
+                            frames = [images[j][i] for j in range(len(images))]
+                            # Write video
+                            frames = [f[:, :, ::-1] for f in frames]  # BGR to RGB
+                            frames += frames[1:-1][::-1]  # continue in reverse
+                            clip = mpy.ImageSequenceClip(frames, fps=15)
+                            clip.write_videofile('%s/%04d_%s.mp4' % (dpath, i, stem),
+                                                 audio=False, threads=8,
+                                                 logger=None, verbose=False)
 
-                for spec in walking_spec:  # Gaze-direction-walk
-                    output_images = []
-                    for rotation_mat in spec['matrices']:
-                        adjusted_input = data_dict['to_visualize'].copy()
-                        adjusted_input['R_gaze_b'] = rotation_mat
-                        adjusted_input['R_head_b'] = identity_rotation
-                        adjusted_input = dict([(k, v.to(device))
-                                               for k, v in adjusted_input.items()])
-                        output_dict = network(adjusted_input)
-                        output_images.append(recover_images(output_dict['image_b_hat']))
-                    save_images(output_images, 'gaze', spec['name'])
+                    for spec in walking_spec:  # Gaze-direction-walk
+                        output_images = []
+                        for rotation_mat in spec['matrices']:
+                            adjusted_input = data_dict['to_visualize'].copy()
+                            adjusted_input['R_gaze_b'] = rotation_mat
+                            adjusted_input['R_head_b'] = identity_rotation
+                            adjusted_input = dict([(k, v.to(device))
+                                                   for k, v in adjusted_input.items()])
+                            output_dict = network(adjusted_input)
+                            output_images.append(recover_images(output_dict['image_b_hat']))
+                        save_images(output_images, 'gaze', spec['name'])
 
-                for spec in walking_spec:  # Head-pose-walk
-                    output_images = []
-                    for rotation_mat in spec['matrices']:
-                        adjusted_input = data_dict['to_visualize'].copy()
-                        adjusted_input['R_gaze_b'] = identity_rotation
-                        adjusted_input['R_head_b'] = rotation_mat
-                        adjusted_input = dict([(k, v.to(device))
-                                               for k, v in adjusted_input.items()])
-                        output_dict = network(adjusted_input)
-                        output_images.append(recover_images(output_dict['image_b_hat']))
-                    save_images(output_images, 'head', spec['name'])
+                    for spec in walking_spec:  # Head-pose-walk
+                        output_images = []
+                        for rotation_mat in spec['matrices']:
+                            adjusted_input = data_dict['to_visualize'].copy()
+                            adjusted_input['R_gaze_b'] = identity_rotation
+                            adjusted_input['R_head_b'] = rotation_mat
+                            adjusted_input = dict([(k, v.to(device))
+                                                   for k, v in adjusted_input.items()])
+                            output_dict = network(adjusted_input)
+                            output_images.append(recover_images(output_dict['image_b_hat']))
+                        save_images(output_images, 'head', spec['name'])
 
-        torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
 
 if not args.skip_training:
-    logging.info('Finished Training')
+    if not args.distributed or args.local_rank == 0:
+        logging.info('Finished Training')
 
-    # Save model parameters
-    saver.save_checkpoint(current_step)
-
-    if args.use_tensorboard:
-        tensorboard.close()
-        del tensorboard
+        # Save model parameters
+        saver.save_checkpoint(current_step)
+        if args.use_tensorboard:
+            tensorboard.close()
+            del tensorboard
 
 # Clean up a bit
 optimizer.zero_grad()
@@ -772,93 +870,99 @@ del (train_dataloader, train_dataset, all_data,
 
 #########################################
 # Generating predictions with final model
-logging.info('Now generating predictions with final model...')
-all_data = OrderedDict()
-for tag, hdf_file, prefixes in [('gc/train', args.gazecapture_file, all_gc_prefixes['train']),
-                                ('gc/val', args.gazecapture_file, all_gc_prefixes['val']),
-                                ('gc/test', args.gazecapture_file, all_gc_prefixes['test']),
-                                ('mpi', args.mpiigaze_file, None),
-                                ]:
-    # Define dataset structure based on selected prefixes
-    dataset = HDFDataset(hdf_file_path=hdf_file,
-                         prefixes=prefixes,
-                         get_2nd_sample=False)
-    all_data[tag] = {
-        'dataset': dataset,
-        'dataloader': DataLoader(dataset,
-                                 batch_size=args.eval_batch_size,
-                                 shuffle=False,
-                                 num_workers=args.num_data_loaders,
-                                 pin_memory=True,
-                                 worker_init_fn=worker_init_fn),
-    }
-logging.info('')
-for tag, val in all_data.items():
-    tag = '[%s]' % tag
-    dataset = val['dataset']
-    num_entries = len(dataset)
-    num_people = len(dataset.prefixes)
-    logging.info('%10s set size:                %7d' % (tag, num_entries))
-    logging.info('%10s num people:              %7d' % (tag, num_people))
-    logging.info('%10s mean entries per person: %7d' % (tag, num_entries / num_people))
+
+if args.generate_predictions:
+    # make sure that DDP is off for generating predictions as multiple
+    # processes cannot write together to the same .h5 file.
+    assert args.distributed is False
+
+    logging.info('Now generating predictions with final model...')
+    all_data = OrderedDict()
+    for tag, hdf_file, prefixes in [('gc/train', args.gazecapture_file, all_gc_prefixes['train']),
+                                    ('gc/val', args.gazecapture_file, all_gc_prefixes['val']),
+                                    ('gc/test', args.gazecapture_file, all_gc_prefixes['test']),
+                                    ('mpi', args.mpiigaze_file, None),
+                                    ]:
+        # Define dataset structure based on selected prefixes
+        dataset = HDFDataset(hdf_file_path=hdf_file,
+                             prefixes=prefixes,
+                             get_2nd_sample=False)
+        all_data[tag] = {
+            'dataset': dataset,
+            'dataloader': DataLoader(dataset,
+                                     batch_size=args.eval_batch_size,
+                                     shuffle=False,
+                                     num_workers=args.num_data_loaders,
+                                     pin_memory=True,
+                                     worker_init_fn=worker_init_fn),
+        }
     logging.info('')
+    for tag, val in all_data.items():
+        tag = '[%s]' % tag
+        dataset = val['dataset']
+        num_entries = len(dataset)
+        num_people = len(dataset.prefixes)
+        logging.info('%10s set size:                %7d' % (tag, num_entries))
+        logging.info('%10s num people:              %7d' % (tag, num_people))
+        logging.info('%10s mean entries per person: %7d' % (tag, num_entries / num_people))
+        logging.info('')
 
-# every specified iterations compute the test statistics:
-for tag, data_dict in all_data.items():
-    current_person_id = None
-    current_person_data = {}
-    ofpath = '%s/%s_predictions.h5' % (args.save_path, tag.replace('/', '_'))
-    ofdir = os.path.dirname(ofpath)
-    if not os.path.isdir(ofdir):
-        os.makedirs(ofdir)
-    h5f = h5py.File(ofpath, 'w')
-
-    def store_person_predictions():
-        global current_person_data
-        if len(current_person_data) > 0:
-            g = h5f.create_group(current_person_id)
-            for key, data in current_person_data.items():
-                g.create_dataset(key, data=data, dtype=np.float32)
+    # every specified iterations compute the test statistics:
+    for tag, data_dict in all_data.items():
+        current_person_id = None
         current_person_data = {}
-    with torch.no_grad():
-        np.random.seed()
-        num_batches = int(np.ceil(len(data_dict['dataset']) / args.eval_batch_size))
-        for i, input_dict in enumerate(data_dict['dataloader']):
-            # Get embeddings
-            network.eval()
-            output_dict = network(send_data_dict_to_gpu(input_dict))
-            output_dict = dict([(k, v.cpu().numpy()) for k, v in output_dict.items()])
+        ofpath = '%s/%s_predictions.h5' % (args.save_path, tag.replace('/', '_'))
+        ofdir = os.path.dirname(ofpath)
+        if not os.path.isdir(ofdir):
+            os.makedirs(ofdir)
+        h5f = h5py.File(ofpath, 'w')
 
-            # Process output line by line
-            zipped_data = zip(
-                input_dict['key'],
-                input_dict['gaze_a'].cpu().numpy(),
-                input_dict['head_a'].cpu().numpy(),
-                output_dict['z_app'],
-                output_dict['z_gaze_enc'],
-                output_dict['z_head_enc'],
-                output_dict['gaze_a_hat'],
-            )
-            for (person_id, gaze, head, z_app, z_gaze, z_head, gaze_hat) in zipped_data:
-                # Store predictions if moved on to next person
-                if person_id != current_person_id:
-                    store_person_predictions()
-                    current_person_id = person_id
-                # Now write it
-                to_write = {
-                    'gaze': gaze,
-                    'head': head,
-                    'z_app': z_app,
-                    'z_gaze': z_gaze,
-                    'z_head': z_head,
-                    'gaze_hat': gaze_hat,
-                }
-                for k, v in to_write.items():
-                    if k not in current_person_data:
-                        current_person_data[k] = []
-                    current_person_data[k].append(v.astype(np.float32))
-            logging.info('[%s] processed batch [%04d/%04d] with %d entries.' %
-                         (tag, i + 1, num_batches, len(next(iter(input_dict.values())))))
-    store_person_predictions()
-    logging.info('Completed processing %s' % tag)
-logging.info('Done')
+        def store_person_predictions():
+            global current_person_data
+            if len(current_person_data) > 0:
+                g = h5f.create_group(current_person_id)
+                for key, data in current_person_data.items():
+                    g.create_dataset(key, data=data, dtype=np.float32)
+            current_person_data = {}
+        with torch.no_grad():
+            np.random.seed()
+            num_batches = int(np.ceil(len(data_dict['dataset']) / args.eval_batch_size))
+            for i, input_dict in enumerate(data_dict['dataloader']):
+                # Get embeddings
+                network.eval()
+                output_dict = network(send_data_dict_to_gpu(input_dict))
+                output_dict = dict([(k, v.cpu().numpy()) for k, v in output_dict.items()])
+
+                # Process output line by line
+                zipped_data = zip(
+                    input_dict['key'],
+                    input_dict['gaze_a'].cpu().numpy(),
+                    input_dict['head_a'].cpu().numpy(),
+                    output_dict['z_app'],
+                    output_dict['z_gaze_enc'],
+                    output_dict['z_head_enc'],
+                    output_dict['gaze_a_hat'],
+                )
+                for (person_id, gaze, head, z_app, z_gaze, z_head, gaze_hat) in zipped_data:
+                    # Store predictions if moved on to next person
+                    if person_id != current_person_id:
+                        store_person_predictions()
+                        current_person_id = person_id
+                    # Now write it
+                    to_write = {
+                        'gaze': gaze,
+                        'head': head,
+                        'z_app': z_app,
+                        'z_gaze': z_gaze,
+                        'z_head': z_head,
+                        'gaze_hat': gaze_hat,
+                    }
+                    for k, v in to_write.items():
+                        if k not in current_person_data:
+                            current_person_data[k] = []
+                        current_person_data[k].append(v.astype(np.float32))
+                logging.info('[%s] processed batch [%04d/%04d] with %d entries.' %
+                             (tag, i + 1, num_batches, len(next(iter(input_dict.values())))))
+        store_person_predictions()
+        logging.info('Completed processing %s' % tag)
+    logging.info('Done')

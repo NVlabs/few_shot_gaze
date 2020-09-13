@@ -39,7 +39,8 @@ then
 	#    > GPU model:   Tesla V100 (32GB)
 	#    > Mixed precision training with apex -O1
 
-	python3 1_train_dt_ed.py \
+    TRAIN_CMD=""
+	TRAIN_CMD="1_train_dt_ed.py \
 		--mpiigaze-file ${MPIIGAZE_FILE} \
 		--gazecapture-file ${GAZECAPTURE_FILE} \
 		\
@@ -56,6 +57,9 @@ then
 		--save-image-samples 20 \
 		--use-tensorboard \
 		--save-path ${OUTPUT_DIR} \
+        "
+    eval "python3 -m torch.distributed.launch --nproc_per_node=2 $TRAIN_CMD --distributed; "
+    eval "python3 $TRAIN_CMD --skip-training --generate-predictions; "
 
 		#####################################################################################
 		# NOTE: when adding the lines below, make sure to use the backslash ( \ ) correctly,
@@ -68,6 +72,10 @@ then
 		# Use (append to above) the line below if wanting to use mixed-precision training (as done in the paper)
 		# DO NOT JUST UNCOMMENT IT, IT WILL HAVE NO EFFECT DUE TO BASH PARSING
 		# --use-apex \
+
+		# To change the number of GPUs used while training DT-ED change --nproc_per_node=8 in
+		# "python3 -m torch.distributed.launch --nproc_per_node=8 $TRAIN_CMD"
+
 fi
 
 ###########################
