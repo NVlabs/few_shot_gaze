@@ -7,3 +7,4 @@ opencv_python
 torch
 torchvision
 tqdm
+tensorboardX

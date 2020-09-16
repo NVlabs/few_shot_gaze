@@ -11,11 +11,11 @@
 #       `1_train_dt_ed.py` in that it skips the script completely.
 #
 # Set to 0 to perform DT-ED training and inference for the HDF output.
-SKIP_DTED_TRAINING=1
+SKIP_DTED_TRAINING=0
 
 # NOTE: please make sure to update the two paths below as necessary.
-MPIIGAZE_FILE="../preprocess/outputs/MPIIGaze.h5"
-GAZECAPTURE_FILE="../preprocess/outputs/GazeCapture.h5"
+MPIIGAZE_FILE="../preprocess/outputs/MPIIGaze.h5
+GAZECAPTURE_FILE="../preprocess/outputs/GazeCapture.h5
 
 # This batch size should fit a 11GB single GPU
 # The original training used 8x Tesla V100 GPUs.
@@ -74,7 +74,7 @@ then
 		# --use-apex \
 
 		# To change the number of GPUs used while training DT-ED change --nproc_per_node=8 in
-		# "python3 -m torch.distributed.launch --nproc_per_node=8 $TRAIN_CMD"
+		# "python3 -m torch.distributed.launch --nproc_per_node=8 $TRAIN_CMD --distributed; "
 
 fi
 
@@ -94,8 +94,7 @@ fi
 #    time consuming, as 1000-step fine-tuning must occur for each participant
 #    in GazeCapture and MPIIGaze.
 
-#ML_COMMON=" --disable-tqdm --output-dir ./"
-ML_COMMON=" --skip-training --disable-tqdm --output-dir ./"
+ML_COMMON=" --disable-tqdm --output-dir ./"
 
 python3 2_meta_learning.py ${ML_COMMON} ${OUTPUT_DIR}  1 &
 python3 2_meta_learning.py ${ML_COMMON} ${OUTPUT_DIR}  2 &
