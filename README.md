@@ -1,7 +1,9 @@
-# FAZE: Few-Shot Adaptive Gaze Estimation
+# Updates
 
 Release 09/22/2020
 * Incorporated (a) distributed data parallel trainng and (b) fusedSGD optimizer, resulting in 2x faster training.
+
+# FAZE: Few-Shot Adaptive Gaze Estimation
 
 This repository contains the code for training and evaluation of our ICCV 2019 work, which was presented as an Oral presentation. FAZE is a framework for few-shot adaptation of gaze estimation networks, consisting of equivariance learning (via the **DT-ED** or Disentangling Transforming Encoder-Decoder architecture) and meta-learning with gaze-direction embeddings as input.
 
