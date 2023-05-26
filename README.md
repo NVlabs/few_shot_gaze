@@ -49,7 +49,7 @@ The remaining Python package dependencies can be installed by running:
 You can obtain a copy of the pre-trained weights for the Disentangling Transforming Encoder-Decoder and for the various MAML models from the following location.
 
     cd src/
-    wget -N https://ait.ethz.ch/projects/2019/faze/downloads/outputs_of_full_train_test_and_plot.zip
+    wget -N https://files.ait.ethz.ch/projects/faze/outputs_of_full_train_test_and_plot.zip
     unzip -o outputs_of_full_train_test_and_plot.zip
 
 ### 4. Training, Meta-Learning, and Final Evaluation
