@@ -44,9 +44,9 @@ b. Create a Python virtual environment:
    We recommend using the in-built camera in laptops or attaching an external webcam **rigidly** to your monitor.
    If you move your webcam relative to the monitor you will have to calibrate it again.
 
-### 3. Download pre-trained models for FAZE from [here](https://ait.ethz.ch/projects/2019/faze/downloads/demo_weights.zip).
+### 3. Download pre-trained models for FAZE from [here](https://files.ait.ethz.ch/projects/faze/demo_weights.zip).
     cd demo
-    wget https://ait.ethz.ch/projects/2019/faze/downloads/demo_weights.zip
+    wget https://files.ait.ethz.ch/projects/faze/demo_weights.zip
     unzip demo_weights.zip
 
    These are slightly updated models that perform better than the originals ones documented in the published ICCV 2019
