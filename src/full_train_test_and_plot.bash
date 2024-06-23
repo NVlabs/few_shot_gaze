@@ -14,8 +14,8 @@
 SKIP_DTED_TRAINING=0
 
 # NOTE: please make sure to update the two paths below as necessary.
-MPIIGAZE_FILE="../preprocess/outputs/MPIIGaze.h5
-GAZECAPTURE_FILE="../preprocess/outputs/GazeCapture.h5
+MPIIGAZE_FILE="../preprocess/outputs/MPIIGaze.h5"
+GAZECAPTURE_FILE="../preprocess/outputs/GazeCapture.h5"
 
 # This batch size should fit a 11GB single GPU
 # The original training used 8x Tesla V100 GPUs.
